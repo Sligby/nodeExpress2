@@ -1,10 +1,12 @@
 /** User related routes. */
 
+const jsonschema = require("jsonschema");
 const User = require('../models/user');
 const express = require('express');
 const router = new express.Router();
 const ExpressError = require('../helpers/expressError');
 const { authUser, requireLogin, requireAdmin } = require('../middleware/auth');
+const userUpdateSchema = require("../schemas/userUpdate.json")
 
 /** GET /
  *
@@ -63,7 +65,9 @@ router.get('/:username', authUser, requireLogin, async function(
  *
  */
 
-router.patch('/:username', authUser, requireLogin, requireAdmin, async function(
+
+ // FIXES BUG #5 (removed incorrect middleware)
+router.patch('/:username', authUser, requireLogin, async function(
   req,
   res,
   next
@@ -77,6 +81,13 @@ router.patch('/:username', authUser, requireLogin, requireAdmin, async function(
     let fields = { ...req.body };
     delete fields._token;
 
+    // FIXES BUG #4
+    const validator = jsonschema.validate(fields, userUpdateSchema);
+    if (!validator.valid) {
+      const errs = validator.errors.map(e => e.stack);
+      throw new ExpressError(errs, 401);
+    }
+
     let user = await User.update(req.params.username, fields);
     return res.json({ user });
   } catch (err) {
@@ -86,7 +97,7 @@ router.patch('/:username', authUser, requireLogin, requireAdmin, async function(
 
 /** DELETE /[username]
  *
- * Delete a user. Only an admin user should be able to use this.
+ * Delete a user. Only a staff user should be able to use this.
  *
  * It should return:
  *   {message: "deleted"}
@@ -100,7 +111,9 @@ router.delete('/:username', authUser, requireAdmin, async function(
   next
 ) {
   try {
-    User.delete(req.params.username);
+
+    // FIXES BUG #9
+    await User.delete(req.params.username);
     return res.json({ message: 'deleted' });
   } catch (err) {
     return next(err);

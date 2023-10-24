@@ -48,12 +48,21 @@ function authUser(req, res, next) {
   try {
     const token = req.body._token || req.query._token;
     if (token) {
-      let payload = jwt.decode(token);
-      req.curr_username = payload.username;
-      req.curr_admin = payload.admin;
-    }
-    return next();
-  } catch (err) {
+      // fixes bug #1
+      jwt.verify(token, 'secret-key', (err, payload) => {
+        if (err) {
+          err.status = 401;
+          return next(err);
+        }
+  
+        // Token is valid, add user information to the request
+        req.curr_username = payload.username;
+        req.curr_admin = payload.admin;
+        return next();
+      });
+    } 
+  }
+  catch (err) {
     err.status = 401;
     return next(err);
   }

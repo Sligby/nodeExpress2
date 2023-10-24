@@ -13,6 +13,7 @@ const { SECRET_KEY } = require("../config");
 
 // tokens for our sample users
 const tokens = {};
+const fakeToken = jwt.sign({username: "u1", admin: true}, 'nope')
 
 /** before each test, insert u1, u2, and u3  [u3 is admin] */
 
@@ -73,6 +74,24 @@ describe("POST /auth/register", function() {
       message: `There already exists a user with username 'u1'`
     });
   });
+
+  // TESTS BUG #3
+  test("should not allow a user to register with missing data", async function() {
+    const response = await request(app)
+      .post("/auth/register")
+      .send({
+        username: "newguy",
+        password: "pwd1",
+        first_name: "new_first",
+        last_name: "new_last",
+        email: "new@newuser.com"
+      });
+    expect(response.statusCode).toBe(400);
+    expect(response.body).toEqual({
+      status: 400,
+      message: [`instance requires property "phone"`]
+    });
+  });
 });
 
 describe("POST /auth/login", function() {
@@ -90,11 +109,39 @@ describe("POST /auth/login", function() {
     expect(username).toBe("u1");
     expect(admin).toBe(false);
   });
+
+  // TESTS BUG #6
+  test("should not allow an incorrect username/password to log in", async function() {
+    const response = await request(app)
+      .post("/auth/login")
+      .send({
+        username: "u1",
+        password: "nope"
+      });
+    expect(response.statusCode).toBe(401);
+  });
+
+  // TESTS BUG #7
+  test("cannot omit username or password", async function() {
+    const response = await request(app)
+      .post("/auth/login")
+      .send({
+        username: "u1"
+      });
+    expect(response.statusCode).toBe(401);
+  });
 });
 
 describe("GET /users", function() {
   test("should deny access if no token provided", async function() {
     const response = await request(app).get("/users");
+    expect(response.statusCode).toBe(401);
+  });
+
+  // TESTS BUG #2
+  test("token must be real", async function() {
+    const response = await request(app).get("/users")
+    .send({ _token: fakeToken });
     expect(response.statusCode).toBe(401);
   });
 
@@ -157,10 +204,35 @@ describe("PATCH /users/[username]", function() {
     });
   });
 
-  test("should disallowing patching not-allowed-fields", async function() {
+  // TESTS BUG #5
+  test("should patch data if self", async function() {
+    const response = await request(app)
+      .patch("/users/u1")
+      .send({ _token: tokens.u1, first_name: "new-fn1" }); // u1 is self
+    expect(response.statusCode).toBe(200);
+    expect(response.body.user).toEqual({
+      username: "u1",
+      first_name: "new-fn1",
+      last_name: "ln1",
+      email: "email1",
+      phone: "phone1",
+      admin: false,
+      password: expect.any(String)
+    });
+  });
+
+  test("should disallow patching not-allowed-fields", async function() {
     const response = await request(app)
       .patch("/users/u1")
       .send({ _token: tokens.u1, admin: true });
+    expect(response.statusCode).toBe(401);
+  });
+
+  // TESTS BUG #4
+  test("should disallow nulling not-nullable fields", async function() {
+    const response = await request(app)
+      .patch("/users/u1")
+      .send({ _token: tokens.u1, first_name: null });
     expect(response.statusCode).toBe(401);
   });
 
@@ -192,6 +264,14 @@ describe("DELETE /users/[username]", function() {
     expect(response.statusCode).toBe(200);
     expect(response.body).toEqual({ message: "deleted" });
   });
+
+  // TESTS BUG #9
+  test("error if no such user", async function(){
+    const response = await request(app)
+      .delete("/users/nope")
+      .send({ _token: tokens.u3 }); // u3 is admin
+    expect(response.statusCode).toBe(404);
+  })
 });
 
 afterEach(async function() {
